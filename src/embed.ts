@@ -94,10 +94,14 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		super(containerEl);
 	}
 
-	async onload() {
+	onload() {
+		void this.init();
+	}
+
+	private async init() {
 		const el = this.containerEl;
 		el.addClass("graph-timelapse-embed");
-		el.style.height = `${this.cfg.height}px`;
+		el.setCssProps({ height: `${this.cfg.height}px` });
 		this.canvas = el.createEl("canvas");
 		this.canvas.setAttr("aria-label", "Graph timelapse");
 
@@ -132,7 +136,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 
 		this.start = performance.now();
 		this.loop();
-		this.register(() => cancelAnimationFrame(this.raf));
+		this.register(() => window.cancelAnimationFrame(this.raf));
 	}
 
 	private async loadSnapshots(): Promise<Snapshot[]> {
@@ -156,11 +160,11 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 	}
 
 	private loop = () => {
-		cancelAnimationFrame(this.raf);
+		window.cancelAnimationFrame(this.raf);
 		const now = performance.now();
 		this.draw(this.paused ? this.pausedAt : now);
 		const animating = this.frames.length > 1 && this.cfg.mode !== "still" && !this.paused && this.visible;
-		if (animating) this.raf = requestAnimationFrame(this.loop);
+		if (animating) this.raf = window.requestAnimationFrame(this.loop);
 	};
 
 	private frameAt(time: number): Frame {
@@ -185,8 +189,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
 			this.canvas.width = Math.round(w * dpr);
 			this.canvas.height = Math.round(h * dpr);
-			this.canvas.style.width = `${w}px`;
-			this.canvas.style.height = `${h}px`;
+			this.canvas.setCssProps({ width: `${w}px`, height: `${h}px` });
 		}
 		const ctx = this.canvas.getContext("2d");
 		if (!ctx) return;

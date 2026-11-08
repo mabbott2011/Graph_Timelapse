@@ -169,9 +169,9 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, o: DrawOption
 	ctx.restore();
 }
 
-export function themeColors(el: HTMLElement = document.body): { background: string; text: string; font: string } {
+export function themeColors(el: HTMLElement = activeDocument.body): { background: string; text: string; font: string } {
 	const css = getComputedStyle(el);
-	const body = getComputedStyle(document.body);
+	const body = getComputedStyle(activeDocument.body);
 	const pick = (...vals: string[]) => vals.map((v) => v.trim()).find((v) => v && v !== "rgba(0, 0, 0, 0)") ?? "";
 	return {
 		background: pick(css.getPropertyValue("--background-primary"), body.getPropertyValue("--background-primary"), "#1e1e1e"),
@@ -182,13 +182,19 @@ export function themeColors(el: HTMLElement = document.body): { background: stri
 
 /** Render one snapshot to a PNG. */
 export async function snapshotToPng(s: Snapshot, o: DrawOptions): Promise<ArrayBuffer> {
-	const c = document.createElement("canvas");
+	const c = createEl("canvas");
 	c.width = o.width;
 	c.height = o.height;
 	const ctx = c.getContext("2d");
 	if (!ctx) throw new Error("No 2D canvas");
 	drawFrame(ctx, frameOf(s), o);
-	return new Promise((resolve, reject) =>
-		c.toBlob((blob) => (blob ? blob.arrayBuffer().then(resolve, reject) : reject(new Error("PNG encode failed"))), "image/png"),
-	);
+	return new Promise((resolve, reject) => {
+		c.toBlob((blob) => {
+			if (!blob) {
+				reject(new Error("PNG encode failed"));
+				return;
+			}
+			blob.arrayBuffer().then(resolve, reject);
+		}, "image/png");
+	});
 }

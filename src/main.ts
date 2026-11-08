@@ -37,16 +37,12 @@ export default class GraphTimelapsePlugin extends Plugin {
 		this.addCommand({
 			id: "take-snapshot",
 			name: "Take graph snapshot now",
-			callback: () => this.run({ data: true, png: true, manual: true }),
+			callback: () => void this.run({ data: true, png: true, manual: true }),
 		});
 		this.addCommand({
 			id: "render-png",
 			name: "Render PNG from a snapshot",
-			callback: async () => {
-				const keys = await this.store.keys();
-				if (!keys.length) return new Notice("Graph Timelapse: no snapshots yet.");
-				new SnapshotPicker(this.app, [...keys].reverse(), (k) => this.renderPngFor(k, true)).open();
-			},
+			callback: () => void this.pickAndRender(),
 		});
 
 		this.registerMarkdownCodeBlockProcessor("graph-timelapse", (src, el, ctx) => {
@@ -55,10 +51,19 @@ export default class GraphTimelapsePlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			// Give Obsidian (and the Git plugin's pull-on-startup) a moment first.
-			const t = window.setTimeout(() => this.checkSchedule(), STARTUP_DELAY_MS);
+			const t = window.setTimeout(() => void this.checkSchedule(), STARTUP_DELAY_MS);
 			this.register(() => window.clearTimeout(t));
-			this.registerInterval(window.setInterval(() => this.checkSchedule(), CHECK_EVERY_MS));
+			this.registerInterval(window.setInterval(() => void this.checkSchedule(), CHECK_EVERY_MS));
 		});
+	}
+
+	private async pickAndRender() {
+		const keys = await this.store.keys();
+		if (!keys.length) {
+			new Notice("Graph Timelapse: no snapshots yet.");
+			return;
+		}
+		new SnapshotPicker(this.app, [...keys].reverse(), (k) => void this.renderPngFor(k, true)).open();
 	}
 
 	/** Next time something on an "every n unit" schedule is due. */
@@ -178,7 +183,10 @@ export default class GraphTimelapsePlugin extends Plugin {
 
 	async renderPngFor(key: string, manual: boolean) {
 		const snap = await this.store.load(key);
-		if (!snap) return new Notice(`Graph Timelapse: couldn't read snapshot ${key}`);
+		if (!snap) {
+			new Notice(`Graph Timelapse: couldn't read snapshot ${key}`);
+			return;
+		}
 		const path = await this.writePng(snap);
 		if (manual) new Notice(`Graph Timelapse: saved ${path}`);
 	}

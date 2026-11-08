@@ -1,4 +1,5 @@
 import { App, normalizePath } from "obsidian";
+import { GraphNodeInternal, GraphRendererInternal, PixiColor, num } from "./internals";
 import type { VaultStats } from "./stats";
 
 /**
@@ -9,9 +10,6 @@ import type { VaultStats } from "./stats";
  * File layout is one node / one link per line, so Git diffs stay readable
  * and compress well day to day.
  */
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Any = any;
 
 export const SNAPSHOT_VERSION = 1;
 
@@ -55,50 +53,52 @@ export function nodeId(path: string): string {
 	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-function colorHex(c: Any, fallback: string): string {
+function colorHex(c: PixiColor | null | undefined, fallback: string): string {
 	if (!c || typeof c.rgb !== "number") return fallback;
 	const a = typeof c.a === "number" ? Math.round(Math.max(0, Math.min(1, c.a)) * 255) : 255;
 	return "#" + c.rgb.toString(16).padStart(6, "0") + a.toString(16).padStart(2, "0");
 }
 
+function nodeSize(n: GraphNodeInternal, sizeMult: number): number {
+	let r = NaN;
+	try {
+		r = typeof n.getSize === "function" ? num(n.getSize(), NaN) : NaN;
+	} catch {
+		r = NaN;
+	}
+	// Obsidian's own formula, if getSize isn't available.
+	if (!Number.isFinite(r) || r <= 0) r = sizeMult * Math.max(8, Math.min(3 * Math.sqrt(num(n.weight) + 1), 30));
+	return r;
+}
+
+function nodeFill(n: GraphNodeInternal, colors: Record<string, PixiColor | undefined>): PixiColor | null | undefined {
+	try {
+		const c = typeof n.getFillColor === "function" ? n.getFillColor() : null;
+		if (c) return c;
+	} catch {
+		/* fall through to type colours */
+	}
+	if (n.color) return n.color;
+	const t = typeof n.type === "string" ? n.type : "";
+	return t === "tag" ? colors.fillTag : t === "unresolved" ? colors.fillUnresolved : t === "attachment" ? colors.fillAttachment : colors.fill;
+}
+
 /** Read nodes, links and colours from an open graph view's renderer (Obsidian internals, guarded). */
-export function extractGraph(renderer: Any): RawGraph | null {
-	const nodes: Any[] = renderer?.nodes;
+export function extractGraph(renderer: GraphRendererInternal): RawGraph | null {
+	const nodes = renderer.nodes;
 	if (!Array.isArray(nodes) || nodes.length === 0) return null;
 	const colors = renderer.colors ?? {};
-	const sizeMult = typeof renderer.fNodeSizeMult === "number" ? renderer.fNodeSizeMult : 1;
-
-	const byType = (t: string) =>
-		t === "tag" ? colors.fillTag : t === "unresolved" ? colors.fillUnresolved : t === "attachment" ? colors.fillAttachment : colors.fill;
+	const sizeMult = num(renderer.fNodeSizeMult, 1);
 
 	const out: RawGraph = {
 		nodes: [],
 		links: [],
-		line: {
-			color: colorHex(colors.line, "#88888899"),
-			width: typeof renderer.fLineSizeMult === "number" ? renderer.fLineSizeMult : 1,
-		},
+		line: { color: colorHex(colors.line, "#88888899"), width: num(renderer.fLineSizeMult, 1) },
 	};
 
 	for (const n of nodes) {
 		if (typeof n?.id !== "string") continue;
-		let r: number;
-		try {
-			r = typeof n.getSize === "function" ? Number(n.getSize()) : NaN;
-		} catch {
-			r = NaN;
-		}
-		if (!isFinite(r) || r <= 0) r = sizeMult * Math.max(8, Math.min(3 * Math.sqrt((Number(n.weight) || 0) + 1), 30));
-
-		let fill: Any = null;
-		try {
-			fill = typeof n.getFillColor === "function" ? n.getFillColor() : null;
-		} catch {
-			fill = null;
-		}
-		fill = fill ?? n.color ?? byType(String(n.type ?? ""));
-
-		out.nodes.push({ path: n.id, x: Number(n.x) || 0, y: Number(n.y) || 0, r, color: colorHex(fill, "#b3b3b3ff") });
+		out.nodes.push({ path: n.id, x: num(n.x), y: num(n.y), r: nodeSize(n, sizeMult), color: colorHex(nodeFill(n, colors), "#b3b3b3ff") });
 	}
 
 	const seen = new Set<string>();
@@ -210,7 +210,8 @@ export function buildSnapshot(key: string, raw: RawGraph, prev: Snapshot | null,
 		.map(([a, b]) => {
 			const p = nodeId(a);
 			const q = nodeId(b);
-			return (p < q ? [p, q] : [q, p]) as SnapLink;
+			const link: SnapLink = p < q ? [p, q] : [q, p];
+			return link;
 		})
 		.sort((x, y) => (x[0] + x[1] < y[0] + y[1] ? -1 : 1));
 

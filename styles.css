@@ -23,3 +23,7 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 }
+
+.graph-timelapse-number {
+	width: 5em;
+}

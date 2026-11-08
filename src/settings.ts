@@ -100,7 +100,7 @@ export class GraphTimelapseSettingTab extends PluginSettingTab {
 				.setDesc(desc)
 				.addText((t) => {
 					t.inputEl.type = "number";
-					t.inputEl.style.width = "5em";
+					t.inputEl.addClass("graph-timelapse-number");
 					t.setValue(String(n())).onChange(async (v) => {
 						const x = parseInt(v, 10);
 						if (isFinite(x) && x >= (allowNever ? 0 : 1)) {
