@@ -1,0 +1,25 @@
+/* Graph Timelapse */
+.graph-timelapse-coffee {
+	background-color: #ffdd00;
+	color: #000000;
+	font-weight: 600;
+}
+.graph-timelapse-coffee:hover {
+	background-color: #ffe94d;
+}
+
+.graph-timelapse-embed {
+	position: relative;
+	width: 100%;
+	border-radius: var(--radius-m, 8px);
+	overflow: hidden;
+}
+.graph-timelapse-embed canvas {
+	display: block;
+	cursor: pointer;
+}
+.graph-timelapse-empty {
+	padding: 1em;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
