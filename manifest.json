@@ -1,7 +1,7 @@
 {
 	"id": "graph-timelapse",
 	"name": "Graph Timelapse",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"minAppVersion": "1.5.0",
 	"description": "Records your graph view on a schedule and plays it back as a timelapse you can embed in any note, with PNG keyframes and note/link counts.",
 	"author": "Shady Knoll Labs",

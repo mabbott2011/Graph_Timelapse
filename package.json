@@ -1,6 +1,6 @@
 {
 	"name": "graph-timelapse",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Obsidian plugin: records the graph view over time and plays it back as an embeddable timelapse.",
 	"main": "main.js",
 	"scripts": {
