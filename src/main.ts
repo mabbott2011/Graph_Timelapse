@@ -46,7 +46,7 @@ export default class GraphTimelapsePlugin extends Plugin {
 		});
 
 		this.registerMarkdownCodeBlockProcessor("graph-timelapse", (src, el, ctx) => {
-			ctx.addChild(new TimelapseEmbed(el, parseConfig(src), this.store));
+			ctx.addChild(new TimelapseEmbed(el, parseConfig(src), this.store, () => this.app));
 		});
 
 		this.app.workspace.onLayoutReady(() => {

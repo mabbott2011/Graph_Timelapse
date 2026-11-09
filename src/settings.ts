@@ -20,7 +20,7 @@ export interface GraphTimelapseSettings {
 	dataEvery: number;
 	dataUnit: Unit;
 	dataFolder: string;
-	/** Store note paths in snapshots. Off: notes are stored as anonymous ids. */
+	/** Store note paths in snapshots. Off: notes are stored as pseudonymous ids (path hashes). */
 	includeTitles: boolean;
 	/** How often to also save a PNG keyframe. 0 = never. */
 	pngEvery: number;
@@ -158,7 +158,7 @@ export class GraphTimelapseSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Store note titles")
-			.setDesc("Off: notes are saved as anonymous ids, which is enough to draw the graph. On: note paths are saved too. Leave off if the vault is shared or public.")
+			.setDesc("Off: notes are saved as pseudonymous ids (a hash of the note path), which is enough to draw the graph. Someone who can guess a path could still match it. On: note paths are saved as-is. Leave off if the vault is shared or public.")
 			.addToggle((t) => t.setValue(s.includeTitles).onChange(async (v) => ((s.includeTitles = v), await save())));
 
 		new Setting(containerEl).setName("Image").setHeading();

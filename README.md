@@ -30,7 +30,7 @@ From then on it records once a day by itself. The animation needs at least two s
 - **Steady layouts.** Obsidian lays the graph out from scratch each time, so each snapshot is rotated/mirrored/shifted to best match the previous one. Notes stay put; new ones appear.
 - **Embed it anywhere.** Put a `graph-timelapse` code block in any note (a home page, say) and it plays the history as a smooth animation: notes glide, new ones fade in. Click to pause.
 - **PNG keyframes.** Every so often (default: weekly) a PNG is saved, drawn from the data, so it's crisp at any size. Any snapshot can be rendered later with **Render PNG from a snapshot**.
-- **Private by default.** Snapshots store notes as anonymous ids unless you turn on *Store note titles*. Nothing leaves your vault.
+- **Private by default.** Snapshots store notes as pseudonymous ids (a hash of each note's path) unless you turn on *Store note titles*. That keeps titles out of the files, but it isn't encryption: someone who can guess a path can match its id. Nothing leaves your vault.
 
 ### Embed
 
@@ -67,7 +67,7 @@ A snapshot of a ~200-note vault is about 50 KB of text, one node or link per lin
 | Save a PNG every | 1 week | 0 = never |
 | Time of day | `00:00` | For day-or-longer schedules: first time the vault is open at or after this |
 | Data folder | `_attachments/graph-data` | One JSON file per snapshot |
-| Store note titles | off | Off: notes are anonymous ids |
+| Store note titles | off | Off: notes are pseudonymous ids (path hashes) |
 | Image folder / file name | `_attachments` / `graph-{{date}}` | |
 | Shape | Square 1080 × 1080 | Also 800², 4:5, 9:16, 16:9 or custom |
 | Padding, background, stamp | 40 px, theme, on | |
@@ -99,6 +99,12 @@ Obsidian doesn't offer a public API for the graph view, so the plugin reads node
 
 Desktop is the tested platform. Recording briefly opens the graph view in a tab and closes it again.
 
+### Known limitations
+
+- **Renamed or moved notes** get a new id (ids come from the path), so the timelapse shows the old one leaving and a new one arriving.
+- **Layout alignment is rigid.** Each day is rotated, shifted or mirrored as a whole to match the day before. If Obsidian's layout rearranges clusters relative to each other, that part of the animation will still move.
+- **If the graph internals change**, days captured by the image fallback have no data, so they appear as PNGs but not in the animation.
+
 ## Support
 
 Graph Timelapse is free and open source. If it's useful to you:
@@ -109,7 +115,15 @@ Made by [Shady Knoll Labs](https://shadyknolllabs.com).
 
 ## Development
 
-See [docs/HOW-PLUGINS-WORK.md](docs/HOW-PLUGINS-WORK.md) and [docs/RELEASING-AND-PATCHING.md](docs/RELEASING-AND-PATCHING.md).
+```sh
+npm install
+npm run dev     # rebuild main.js on every change
+npm test        # alignment, snapshots, transitions (Node's built-in test runner)
+npm run lint    # Obsidian's official ESLint rules
+npm run build   # type-check + production build
+```
+
+See [docs/HOW-PLUGINS-WORK.md](docs/HOW-PLUGINS-WORK.md), [docs/RELEASING-AND-PATCHING.md](docs/RELEASING-AND-PATCHING.md), and [docs/REVIEWS.md](docs/REVIEWS.md) for outside reviews and what changed because of them.
 
 ## License
 

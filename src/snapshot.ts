@@ -38,7 +38,14 @@ export interface RawGraph {
 	line: { color: string; width: number };
 }
 
-/** Stable short id for a note path, so titles aren't stored unless asked for. */
+/**
+ * Stable short id for a note path, so titles aren't stored unless asked for.
+ *
+ * This is pseudonymous, not anonymous: it's a fast non-cryptographic hash
+ * (cyrb53), so anyone who can guess a note's path can compute its id and
+ * match it. Renaming or moving a note changes its id, so the timelapse
+ * shows it as one note leaving and another arriving.
+ */
 export function nodeId(path: string): string {
 	// cyrb53
 	let h1 = 0xdeadbeef ^ 0;
@@ -206,16 +213,34 @@ export function buildSnapshot(key: string, raw: RawGraph, prev: Snapshot | null,
 	});
 	nodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
-	const links: SnapLink[] = raw.links
-		.map(([a, b]) => {
-			const p = nodeId(a);
-			const q = nodeId(b);
-			const link: SnapLink = p < q ? [p, q] : [q, p];
-			return link;
-		})
-		.sort((x, y) => (x[0] + x[1] < y[0] + y[1] ? -1 : 1));
+	// One entry per pair of notes, whichever way round the link was written.
+	const byPair = new Map<string, SnapLink>();
+	for (const [a, b] of raw.links) {
+		const p = nodeId(a);
+		const q = nodeId(b);
+		if (p === q) continue;
+		const link: SnapLink = p < q ? [p, q] : [q, p];
+		byPair.set(link[0] + "|" + link[1], link);
+	}
+	const links = [...byPair.values()].sort((x, y) => (x[0] + x[1] < y[0] + y[1] ? -1 : 1));
 
 	return { v: SNAPSHOT_VERSION, key, takenAt: new Date().toISOString(), stats, palette, line: raw.line, nodes, links };
+}
+
+/** Basic shape check, so a corrupted or foreign file is skipped instead of breaking playback. */
+export function isSnapshot(v: unknown): v is Snapshot {
+	const s = v as Partial<Snapshot> | null;
+	return (
+		!!s &&
+		typeof s === "object" &&
+		typeof s.key === "string" &&
+		typeof s.v === "number" &&
+		s.v <= SNAPSHOT_VERSION &&
+		Array.isArray(s.nodes) &&
+		Array.isArray(s.links) &&
+		Array.isArray(s.palette) &&
+		s.nodes.every((n) => Array.isArray(n) && typeof n[0] === "string" && typeof n[1] === "number" && typeof n[2] === "number" && typeof n[3] === "number")
+	);
 }
 
 /** One node / one link per line: readable diffs, good compression. */
@@ -234,9 +259,22 @@ export function serialize(s: Snapshot): string {
 	return lines.join("\n") + "\n";
 }
 
-/** Reads and writes snapshots in the data folder, with a small in-memory cache. */
+/** Most snapshots kept in memory at once (least recently used are dropped first). */
+export const CACHE_LIMIT = 150;
+
+/** Reads and writes snapshots in the data folder, with a bounded in-memory cache. */
 export class SnapshotStore {
 	private cache = new Map<string, Snapshot>();
+
+	private remember(key: string, snap: Snapshot) {
+		this.cache.delete(key);
+		this.cache.set(key, snap);
+		// Map keeps insertion order, so the first keys are the least recently used.
+		for (const oldest of this.cache.keys()) {
+			if (this.cache.size <= CACHE_LIMIT) break;
+			this.cache.delete(oldest);
+		}
+	}
 	private keysCache: string[] | null = null;
 
 	constructor(private app: App, private folder: () => string) {}
@@ -265,12 +303,15 @@ export class SnapshotStore {
 
 	async load(key: string): Promise<Snapshot | null> {
 		const hit = this.cache.get(key);
-		if (hit) return hit;
+		if (hit) {
+			this.remember(key, hit); // mark as recently used
+			return hit;
+		}
 		try {
 			const text = await this.app.vault.adapter.read(`${this.dir()}/${key}.json`);
-			const snap = JSON.parse(text) as Snapshot;
-			if (!Array.isArray(snap?.nodes)) return null;
-			this.cache.set(key, snap);
+			const snap: unknown = JSON.parse(text);
+			if (!isSnapshot(snap)) return null;
+			this.remember(key, snap);
 			return snap;
 		} catch {
 			return null;
@@ -288,7 +329,7 @@ export class SnapshotStore {
 		if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
 		const path = `${dir}/${snap.key}.json`;
 		await adapter.write(path, serialize(snap));
-		this.cache.set(snap.key, snap);
+		this.remember(snap.key, snap);
 		this.invalidate();
 		return path;
 	}

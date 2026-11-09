@@ -1,5 +1,5 @@
-import { MarkdownRenderChild } from "obsidian";
-import { DrawOptions, Frame, between, drawFrame, frameOf, themeColors } from "./render";
+import { App, MarkdownRenderChild } from "obsidian";
+import { DrawOptions, Frame, Transition, drawFrame, frameOf, themeColors } from "./render";
 import type { Snapshot, SnapshotStore } from "./snapshot";
 
 /**
@@ -80,6 +80,9 @@ function sample<T>(arr: T[], max: number): T[] {
 export class TimelapseEmbed extends MarkdownRenderChild {
 	private canvas!: HTMLCanvasElement;
 	private frames: Frame[] = [];
+	/** Built on first use and kept, so each pair of snapshots is diffed once. */
+	private transitions: (Transition | undefined)[] = [];
+	private theme: ReturnType<typeof themeColors> | null = null;
 	private raf = 0;
 	private visible = true;
 	private paused = false;
@@ -90,6 +93,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		containerEl: HTMLElement,
 		private cfg: EmbedConfig,
 		private store: SnapshotStore,
+		private app: () => App,
 	) {
 		super(containerEl);
 	}
@@ -113,7 +117,15 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		}
 		this.frames = snaps.map(frameOf);
 
-		const ro = new ResizeObserver(() => this.draw(performance.now()));
+		// Theme colours are read once and refreshed when the theme changes, not every frame.
+		this.registerEvent(
+			this.app().workspace.on("css-change", () => {
+				this.theme = null;
+				this.draw(this.paused ? this.pausedAt : performance.now());
+			}),
+		);
+
+		const ro = new ResizeObserver(() => this.draw(this.paused ? this.pausedAt : performance.now()));
 		ro.observe(el);
 		this.register(() => ro.disconnect());
 
@@ -159,13 +171,34 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		return out;
 	}
 
+	/** Length of one pass through the snapshots, in ms. */
+	private playMs(): number {
+		return (1000 / this.cfg.speed) * Math.max(this.frames.length - 1, 0);
+	}
+
+	/** A "once" animation that has reached its last frame. */
+	private finished(now: number): boolean {
+		return this.cfg.mode === "once" && now - this.start >= this.playMs();
+	}
+
 	private loop = () => {
 		window.cancelAnimationFrame(this.raf);
 		const now = performance.now();
 		this.draw(this.paused ? this.pausedAt : now);
-		const animating = this.frames.length > 1 && this.cfg.mode !== "still" && !this.paused && this.visible;
+		// Stop requesting frames when nothing will change: still mode, paused,
+		// off screen, or a "once" animation that has finished.
+		const animating = this.frames.length > 1 && this.cfg.mode !== "still" && !this.paused && this.visible && !this.finished(now);
 		if (animating) this.raf = window.requestAnimationFrame(this.loop);
 	};
+
+	private transition(i: number): Transition {
+		let t = this.transitions[i];
+		if (!t) {
+			t = new Transition(this.frames[i], this.frames[i + 1]);
+			this.transitions[i] = t;
+		}
+		return t;
+	}
 
 	private frameAt(time: number): Frame {
 		const n = this.frames.length;
@@ -177,7 +210,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		if (this.cfg.mode === "loop") t = t % cycle;
 		if (t >= play) return this.frames[n - 1];
 		const i = Math.floor(t / step);
-		return between(this.frames[i], this.frames[i + 1], (t - i * step) / step);
+		return this.transition(i).at((t - i * step) / step);
 	}
 
 	private draw(time: number) {
@@ -193,7 +226,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 		}
 		const ctx = this.canvas.getContext("2d");
 		if (!ctx) return;
-		const theme = themeColors(el);
+		const theme = (this.theme ??= themeColors(el));
 		const o: DrawOptions = {
 			width: this.canvas.width,
 			height: this.canvas.height,
