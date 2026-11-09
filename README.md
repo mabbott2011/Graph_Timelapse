@@ -8,6 +8,10 @@ Obsidian's built-in graph *Animate* button replays your **current** notes in the
 
 Made by [Shady Knoll Labs](https://shadyknolllabs.com): focused, trustworthy tools, the kind we rely on ourselves.
 
+![60 days of a 1,000-note vault growing, exported with Graph Timelapse](docs/media/graph-timelapse-demo.gif)
+
+*60 days of a 1,000-note vault, made with **Export timelapse video** (new in 0.3.0). [Full-quality MP4](docs/media/graph-timelapse-1000-notes.mp4) · [vertical 9:16 for Shorts/Reels](docs/media/graph-timelapse-1000-notes-vertical.mp4) · [steady playback, before / after](docs/media/graph-timelapse-steady-before-after.mp4) · [10,000-note stress test](docs/media/graph-timelapse-10000-notes.mp4). Sample data from the built-in generator ([bench/](bench/README.md)).*
+
 ![Graph Timelapse snapshot](docs/example.png)
 
 ## Quick start
@@ -27,7 +31,7 @@ From then on it records once a day by itself. The animation needs at least two s
 ## How it works
 
 - **Records what your graph actually looked like.** On a schedule (default: daily) the plugin briefly opens the graph view, reads every note's position, size and colour plus every link, and saves it as a small JSON snapshot. Obsidian's built-in *Animate* replays file dates; this records real history: links added later, deleted and renamed notes, tags and unresolved links.
-- **Steady layouts.** Obsidian lays the graph out from scratch each time, so each snapshot is rotated/mirrored/shifted to best match the previous one. Notes stay put; new ones appear.
+- **Steady layouts.** Obsidian lays the graph out from scratch each time, so each snapshot is rotated/mirrored/shifted to best match the previous one, and playback keeps notes close to where they were (see *Steady playback* below). Automatic captures wait until the layout has actually run and come to rest; if Obsidian is in the background and the graph doesn't animate, the capture is retried a few minutes later.
 - **Embed it anywhere.** Put a `graph-timelapse` code block in any note (a home page, say) and it plays the history as a smooth animation: notes glide, new ones fade in. Click to pause.
 - **PNG keyframes.** Every so often (default: weekly) a PNG is saved, drawn from the data, so it's crisp at any size. Any snapshot can be rendered later with **Render PNG from a snapshot**.
 - **Private by default.** Snapshots store notes as pseudonymous ids (a hash of each note's path) unless you turn on *Store note titles*. That keeps titles out of the files, but it isn't encryption: someone who can guess a path can match its id. Nothing leaves your vault.
@@ -38,14 +42,26 @@ From then on it records once a day by itself. The animation needs at least two s
 ```graph-timelapse
 mode: loop        # loop | once | still
 from: 2026-11-01  # optional
-speed: 2          # snapshots per second
+speed: auto       # snapshots per second; auto ≈ 15 s per pass (1–8/s)
 hold: 2           # seconds on the last frame
 height: 420
 stamp: true
+steady: 0.7          # 0 = Obsidian's layouts as recorded … 0.95 = notes barely move
+skip-unchanged: true # fold snapshots where no note or link changed
 ```
 ````
 
+**Steady playback.** Obsidian lays the graph out from scratch on every capture, so even with nothing new, notes swap places. Playback (embeds and video export) keeps each note close to where it was and lets it drift only part of the way to its new spot, and new notes appear beside the notes they link to. Snapshots where no note or link changed are folded into the one before. This changes playback only: the recorded snapshots stay exactly as captured. On a real 268-note vault it cut frame-to-frame jumping from ~23% of the frame to ~8% ([before / after](docs/media/graph-timelapse-steady-before-after.mp4)).
+
 For a single snapshot: `mode: still` and `date: latest` (or `date: 2026-11-08`).
+
+### Export a video
+
+**Export timelapse video** turns any range of snapshots into an MP4 (or WebM) you can post anywhere: pick the dates, the shape (square, 4:5, 9:16 for Shorts/Reels/TikTok, 16:9), speed and how long to hold the last frame. Speed defaults to **Auto**: short histories play at a readable 1 snapshot per second, longer ones speed up (to at most 8 per second) so the video stays around 15 seconds. It's saved next to your PNG keyframes as `graph-timelapse_<from>_<to>.mp4`.
+
+- Encoded on your device with WebCodecs, frame by frame with exact timing, so it stays smooth even for very large vaults and usually renders faster than real time. Where WebCodecs isn't available it falls back to the browser's recorder.
+- Every export carries a small **"made with Graph Timelapse"** credit in the corner, so people who see your video can find the plugin. It's how a free plugin gets around.
+- Free, like the rest of the plugin. If it's useful, there's a ☕ link in the settings.
 
 ### Sizes
 
@@ -57,6 +73,7 @@ A snapshot of a ~200-note vault is about 50 KB of text, one node or link per lin
 |---|---|
 | **Take graph snapshot now** | Records the graph and saves a PNG right away |
 | **Render PNG from a snapshot** | Pick any saved day and draw its PNG |
+| **Export timelapse video** | Save a range of snapshots as an MP4/WebM video |
 
 ## Settings
 

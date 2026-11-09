@@ -1,5 +1,6 @@
 import { App, MarkdownRenderChild } from "obsidian";
-import { DrawOptions, Frame, Transition, drawFrame, frameOf, themeColors } from "./render";
+import { DrawOptions, Frame, Transition, drawFrame, themeColors } from "./render";
+import { DEFAULT_STEADY, autoSpeed, sequence } from "./sequence";
 import type { Snapshot, SnapshotStore } from "./snapshot";
 
 /**
@@ -8,11 +9,13 @@ import type { Snapshot, SnapshotStore } from "./snapshot";
  * date: latest        # still mode: which snapshot (YYYY-MM-DD or latest)
  * from: 2026-11-01    # optional range
  * to: latest
- * speed: 2            # snapshots per second
+ * speed: auto         # snapshots per second; auto = ~15 s per pass (1–8/s)
  * hold: 2             # seconds to pause on the last frame before looping
  * height: 420         # px
  * stamp: true         # date and counts in the corner
  * max-frames: 120     # long histories are sampled evenly to this many
+ * steady: 0.7         # 0 = Obsidian's layouts as recorded … 0.95 = notes barely move
+ * skip-unchanged: true  # fold snapshots where no note or link changed
  * ```
  */
 
@@ -21,15 +24,18 @@ export interface EmbedConfig {
 	date: string;
 	from: string;
 	to: string;
+	/** Snapshots per second; 0 = auto. */
 	speed: number;
 	hold: number;
 	height: number;
 	stamp: boolean;
 	maxFrames: number;
+	steady: number;
+	skipUnchanged: boolean;
 }
 
 export function parseConfig(src: string): EmbedConfig {
-	const cfg: EmbedConfig = { mode: "loop", date: "latest", from: "", to: "latest", speed: 2, hold: 2, height: 420, stamp: true, maxFrames: 120 };
+	const cfg: EmbedConfig = { mode: "loop", date: "latest", from: "", to: "latest", speed: 0, hold: 2, height: 420, stamp: true, maxFrames: 120, steady: DEFAULT_STEADY, skipUnchanged: true };
 	for (const raw of src.split(/\r?\n/)) {
 		const line = raw.replace(/#.*$/, "").trim();
 		const m = line.match(/^([\w-]+)\s*:\s*(.+)$/);
@@ -51,7 +57,8 @@ export function parseConfig(src: string): EmbedConfig {
 				cfg.to = val;
 				break;
 			case "speed":
-				if (num > 0) cfg.speed = Math.min(num, 30);
+				if (val === "auto") cfg.speed = 0;
+				else if (num > 0) cfg.speed = Math.min(num, 30);
 				break;
 			case "hold":
 				if (num >= 0) cfg.hold = num;
@@ -61,6 +68,12 @@ export function parseConfig(src: string): EmbedConfig {
 				break;
 			case "stamp":
 				cfg.stamp = !/^(false|no|off|0)$/i.test(val);
+				break;
+			case "steady":
+				cfg.steady = /^(false|no|off)$/i.test(val) ? 0 : num >= 0 ? Math.min(num, 0.95) : cfg.steady;
+				break;
+			case "skip-unchanged":
+				cfg.skipUnchanged = !/^(false|no|off|0)$/i.test(val);
 				break;
 			case "max-frames":
 				if (num >= 2) cfg.maxFrames = Math.floor(num);
@@ -84,6 +97,8 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 	private transitions: (Transition | undefined)[] = [];
 	private theme: ReturnType<typeof themeColors> | null = null;
 	private raf = 0;
+	/** Snapshots per second actually used (auto resolved). */
+	private speed = 1;
 	private visible = true;
 	private paused = false;
 	private start = 0;
@@ -115,7 +130,8 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 			el.createDiv({ cls: "graph-timelapse-empty", text: "No graph snapshots yet. Run “Graph Timelapse: Take graph snapshot now”." });
 			return;
 		}
-		this.frames = snaps.map(frameOf);
+		this.frames = sequence(snaps, { skipUnchanged: this.cfg.skipUnchanged, steady: this.cfg.steady });
+		this.speed = this.cfg.speed || autoSpeed(this.frames.length);
 
 		// Theme colours are read once and refreshed when the theme changes, not every frame.
 		this.registerEvent(
@@ -173,7 +189,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 
 	/** Length of one pass through the snapshots, in ms. */
 	private playMs(): number {
-		return (1000 / this.cfg.speed) * Math.max(this.frames.length - 1, 0);
+		return (1000 / this.speed) * Math.max(this.frames.length - 1, 0);
 	}
 
 	/** A "once" animation that has reached its last frame. */
@@ -203,7 +219,7 @@ export class TimelapseEmbed extends MarkdownRenderChild {
 	private frameAt(time: number): Frame {
 		const n = this.frames.length;
 		if (n === 1 || this.cfg.mode === "still") return this.frames[n - 1];
-		const step = 1000 / this.cfg.speed;
+		const step = 1000 / this.speed;
 		const play = step * (n - 1);
 		const cycle = play + this.cfg.hold * 1000;
 		let t = time - this.start;

@@ -122,30 +122,18 @@ export function extractGraph(renderer: GraphRendererInternal): RawGraph | null {
 	return out;
 }
 
+export interface Pt {
+	x: number;
+	y: number;
+}
+
 /**
- * Obsidian lays the graph out from scratch each time it opens, so the same
- * note lands somewhere different every day. Rotate/mirror/shift the new
- * layout to best match the previous snapshot (2D Procrustes on the notes
- * both share), so a timelapse shows growth instead of spinning.
+ * Best rotation (or mirrored rotation) plus shift that moves the `b` points
+ * onto the `a` points, in the least-squares sense: 2D Procrustes.
+ * Returns null when there are fewer than three pairs to fit.
  */
-export function align(raw: RawGraph, prev: Snapshot | null): { x: number; y: number }[] {
-	const pts = raw.nodes.map((n) => ({ x: n.x, y: n.y }));
-	const prevPos = new Map<string, { x: number; y: number }>();
-	for (const n of prev?.nodes ?? []) prevPos.set(n[0], { x: n[1], y: n[2] });
-
-	const pairs: { a: { x: number; y: number }; b: { x: number; y: number } }[] = [];
-	raw.nodes.forEach((n, i) => {
-		const a = prevPos.get(nodeId(n.path));
-		if (a) pairs.push({ a, b: pts[i] });
-	});
-
-	if (pairs.length < 3) {
-		// Nothing to match against: just centre on the origin.
-		const cx = pts.reduce((s, p) => s + p.x, 0) / Math.max(pts.length, 1);
-		const cy = pts.reduce((s, p) => s + p.y, 0) / Math.max(pts.length, 1);
-		return pts.map((p) => ({ x: p.x - cx, y: p.y - cy }));
-	}
-
+export function procrustes(pairs: { a: Pt; b: Pt }[]): ((p: Pt) => Pt) | null {
+	if (pairs.length < 3) return null;
 	const ca = { x: 0, y: 0 };
 	const cb = { x: 0, y: 0 };
 	for (const { a, b } of pairs) {
@@ -186,12 +174,51 @@ export function align(raw: RawGraph, prev: Snapshot | null): { x: number; y: num
 	const plain = fit(1);
 	const mirrored = fit(-1);
 	const best = mirrored.err < plain.err ? mirrored : plain;
-
-	return pts.map((p) => {
+	return (p) => {
 		const bx = (p.x - cb.x) * best.mirror;
 		const by = p.y - cb.y;
 		return { x: bx * best.cos - by * best.sin + ca.x, y: bx * best.sin + by * best.cos + ca.y };
+	};
+}
+
+/**
+ * Obsidian lays the graph out from scratch each time it opens, so the same
+ * note lands somewhere different every day. Rotate/mirror/shift the new
+ * layout to best match the previous snapshot (2D Procrustes on the notes
+ * both share), so a timelapse shows growth instead of spinning.
+ */
+export function align(raw: RawGraph, prev: Snapshot | null): Pt[] {
+	const pts = raw.nodes.map((n) => ({ x: n.x, y: n.y }));
+	const prevPos = new Map<string, Pt>();
+	for (const n of prev?.nodes ?? []) prevPos.set(n[0], { x: n[1], y: n[2] });
+
+	const pairs: { a: Pt; b: Pt }[] = [];
+	raw.nodes.forEach((n, i) => {
+		const a = prevPos.get(nodeId(n.path));
+		if (a) pairs.push({ a, b: pts[i] });
 	});
+
+	const fit = procrustes(pairs);
+	if (!fit) {
+		// Nothing to match against: just centre on the origin.
+		const cx = pts.reduce((s, p) => s + p.x, 0) / Math.max(pts.length, 1);
+		const cy = pts.reduce((s, p) => s + p.y, 0) / Math.max(pts.length, 1);
+		return pts.map((p) => ({ x: p.x - cx, y: p.y - cy }));
+	}
+	return pts.map(fit);
+}
+
+/**
+ * Fingerprint of a snapshot's structure: which notes exist, their colours,
+ * and the links, but not where they sit. Two snapshots with the same
+ * signature show the same graph, only laid out differently.
+ */
+export function signature(s: Snapshot): string {
+	const parts: string[] = [];
+	for (const n of s.nodes) parts.push(n[0] + ":" + (s.palette[n[4]] ?? ""));
+	parts.push("|");
+	for (const [a, b] of s.links) parts.push(a + "-" + b);
+	return nodeId(parts.join(",")) + "/" + s.nodes.length + "/" + s.links.length;
 }
 
 export function buildSnapshot(key: string, raw: RawGraph, prev: Snapshot | null, stats: VaultStats, includeTitles: boolean): Snapshot {
@@ -301,17 +328,18 @@ export class SnapshotStore {
 		return this.keysCache;
 	}
 
-	async load(key: string): Promise<Snapshot | null> {
+	/** `remember: false` reads without filling the cache (e.g. a one-off video export). */
+	async load(key: string, remember = true): Promise<Snapshot | null> {
 		const hit = this.cache.get(key);
 		if (hit) {
-			this.remember(key, hit); // mark as recently used
+			if (remember) this.remember(key, hit); // mark as recently used
 			return hit;
 		}
 		try {
 			const text = await this.app.vault.adapter.read(`${this.dir()}/${key}.json`);
 			const snap: unknown = JSON.parse(text);
 			if (!isSnapshot(snap)) return null;
-			this.remember(key, snap);
+			if (remember) this.remember(key, snap);
 			return snap;
 		} catch {
 			return null;

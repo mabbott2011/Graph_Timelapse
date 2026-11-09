@@ -1,6 +1,7 @@
 import { App, Notice, Plugin, SuggestModal, TFile, moment, normalizePath } from "obsidian";
-import { captureGraph } from "./capture";
+import { LayoutNotRunError, captureGraph } from "./capture";
 import { TimelapseEmbed, parseConfig } from "./embed";
+import { ExportModal } from "./export";
 import { DrawOptions, snapshotToPng, themeColors } from "./render";
 import { DEFAULT_SETTINGS, GraphTimelapseSettings, GraphTimelapseSettingTab, Unit } from "./settings";
 import { Snapshot, SnapshotStore, buildSnapshot } from "./snapshot";
@@ -27,7 +28,10 @@ export default class GraphTimelapsePlugin extends Plugin {
 	lastDataAt: string | null = null;
 	lastPngAt: string | null = null;
 	store!: SnapshotStore;
+	exporting = false;
 	private running = false;
+	/** Automatic captures put off because the layout didn't run (Obsidian in the background). */
+	private deferred = 0;
 
 	async onload() {
 		await this.loadStored();
@@ -45,6 +49,12 @@ export default class GraphTimelapsePlugin extends Plugin {
 			callback: () => void this.pickAndRender(),
 		});
 
+		this.addCommand({
+			id: "export-video",
+			name: "Export timelapse video",
+			callback: () => void this.openExport(),
+		});
+
 		this.registerMarkdownCodeBlockProcessor("graph-timelapse", (src, el, ctx) => {
 			ctx.addChild(new TimelapseEmbed(el, parseConfig(src), this.store, () => this.app));
 		});
@@ -55,6 +65,15 @@ export default class GraphTimelapsePlugin extends Plugin {
 			this.register(() => window.clearTimeout(t));
 			this.registerInterval(window.setInterval(() => void this.checkSchedule(), CHECK_EVERY_MS));
 		});
+	}
+
+	async openExport() {
+		const keys = await this.store.keys();
+		if (keys.length < 2) {
+			new Notice("Graph Timelapse: need at least two snapshots to make a video.");
+			return;
+		}
+		new ExportModal(this.app, this, keys).open();
 	}
 
 	private async pickAndRender() {
@@ -123,6 +142,9 @@ export default class GraphTimelapsePlugin extends Plugin {
 					background: s.background,
 					stamp: s.stamp ? `${now.format("YYYY-MM-DD")} · ${formatStats(stats)}` : null,
 					pixiPng: want.png ? "if-no-data" : "never",
+					// Automatic runs wait for a layout that actually ran, but not forever:
+					// after a few tries (15+ min) take what there is.
+					requireLayout: !want.manual && this.deferred < 3,
 				});
 				await this.writeDebug({ at: now.toISOString(), build: __BUILD__, version: this.manifest.version, method: result.method, steps: result.debug });
 
@@ -151,11 +173,18 @@ export default class GraphTimelapsePlugin extends Plugin {
 				}
 			}
 
+			this.deferred = 0;
 			await this.saveStored();
 			notice?.hide();
 			if (want.manual) new Notice(`Graph Timelapse: saved ${done.join(", ") || "nothing"}`);
 		} catch (e) {
 			notice?.hide();
+			if (e instanceof LayoutNotRunError) {
+				// Quietly retry at the next schedule check (every 5 minutes).
+				this.deferred++;
+				console.debug("[graph-timelapse]", e.message);
+				return;
+			}
 			console.error("[graph-timelapse]", e);
 			new Notice(`Graph Timelapse: snapshot failed — ${(e as Error).message}`);
 		} finally {
@@ -163,7 +192,7 @@ export default class GraphTimelapsePlugin extends Plugin {
 		}
 	}
 
-	private drawOptions(): DrawOptions {
+	drawOptions(): DrawOptions {
 		const s = this.settings;
 		const theme = themeColors();
 		return {
@@ -209,13 +238,17 @@ export default class GraphTimelapsePlugin extends Plugin {
 	}
 
 	private async writeImage(key: string, png: ArrayBuffer): Promise<string> {
+		return this.writeFile(this.settings.fileName.split("{{date}}").join(key) + ".png", png);
+	}
+
+	/** Write a binary file into the image folder, replacing one with the same name. */
+	async writeFile(name: string, data: ArrayBuffer): Promise<string> {
 		const folder = normalizePath(this.settings.folder || "/");
 		await this.ensureFolder(folder);
-		const name = this.settings.fileName.split("{{date}}").join(key) + ".png";
 		const path = normalizePath(folder === "/" ? name : `${folder}/${name}`);
 		const existing = this.app.vault.getAbstractFileByPath(path);
-		if (existing instanceof TFile) await this.app.vault.modifyBinary(existing, png);
-		else await this.app.vault.createBinary(path, png);
+		if (existing instanceof TFile) await this.app.vault.modifyBinary(existing, data);
+		else await this.app.vault.createBinary(path, data);
 		return path;
 	}
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 — 2026-11-09 · Video export and steady playback
+
+### Added
+- **Export timelapse video** command: MP4 (or WebM) of any date range, in any of the image shapes, with speed and hold controls. Saved next to the PNG keyframes.
+  - WebCodecs encoding with exact frame timestamps (via [Mediabunny](https://mediabunny.dev), MPL-2.0): smooth at 10,000 notes and faster than real time for typical vaults. MediaRecorder fallback where WebCodecs is missing; MP4 falls back to WebM (and back) if a format can't be encoded.
+  - Every export includes a small "made with Graph Timelapse" credit.
+  - Snapshots are streamed two at a time and kept out of the playback cache, so long histories don't fill memory.
+- **Stress-test data generator** (`npm run bench:gen`, see `bench/README.md`): simulated vaults from 100 to 10,000+ notes with hundreds of days of history, written through the real snapshot code.
+
+- **Steady playback** for embeds and exports: notes keep close to where they were between snapshots (Obsidian re-lays out the graph every capture), new notes appear beside the notes they link to. `steady: 0…0.95` in embeds (default 0.7), slider in the export dialog. Recorded data is unchanged.
+- **Auto speed** (new default for embeds and exports): aims for a ~15 s timelapse, at 1 to 8 snapshots per second. Set `speed:` or pick a speed in the export dialog to override.
+- **Skip unchanged snapshots**: snapshots with the same notes and links as the one before are folded into it (`skip-unchanged: false` to turn off).
+- `npm run bench:jitter -- <graph-data folder>`: measures how much a timelapse jumps around. The generator now mimics Obsidian's re-layouts and reports jitter before/after.
+
+### Fixed
+- **Captures of an unfinished layout.** The settle check counted a layout that hadn't started moving as "settled", so captures taken while Obsidian was in the background could record a half-done, squeezed layout (about 1 in 4 on a real vault). It now waits until it has seen the layout move and then come to rest, and automatic captures where the layout never ran are retried at the next check (after three tries it records anyway). Settle details are written to `last-capture.json`.
+
+### Notes
+- The renderer can draw a credit line; PNG keyframes are unchanged.
+- README: demo GIF and sample videos in `docs/media/`.
+
 ## 0.2.1 — 2026-11-08 · First review fixes
 
 Changes from the first outside review ([docs/REVIEWS.md](docs/REVIEWS.md)).

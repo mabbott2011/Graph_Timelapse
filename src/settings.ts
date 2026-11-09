@@ -87,6 +87,11 @@ export class GraphTimelapseSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl)
+			.setName("Export a video")
+			.setDesc("Save a range of snapshots as an MP4 or WebM timelapse. Also in the command palette: “Export timelapse video”.")
+			.addButton((b) => b.setButtonText("Export video").onClick(() => void this.plugin.openExport()));
+
 		new Setting(containerEl).setName("Schedule").setHeading();
 
 		new Setting(containerEl)

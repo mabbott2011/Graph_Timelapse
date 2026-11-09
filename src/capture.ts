@@ -29,6 +29,19 @@ export interface CaptureOptions {
 	stamp: string | null;
 	/** Capture an image from Obsidian's renderer if the graph data can't be read. */
 	pixiPng: "never" | "if-no-data";
+	/**
+	 * Refuse to record a layout that never moved (throws LayoutNotRunError).
+	 * With Obsidian minimised or in the background the graph may not animate,
+	 * and an unfinished layout is recorded as if it were settled.
+	 */
+	requireLayout?: boolean;
+}
+
+/** The graph layout never ran, so there's nothing trustworthy to record; try again later. */
+export class LayoutNotRunError extends Error {
+	constructor() {
+		super("The graph layout didn't run (is Obsidian in the background?). Will try again later.");
+	}
 }
 
 export interface CaptureResult {
@@ -61,7 +74,9 @@ export async function captureGraph(app: App, opts: CaptureOptions): Promise<Capt
 		const view = leaf.view as unknown as GraphViewInternal;
 		const renderer = await waitFor(() => (view.renderer?.px ? view.renderer : null), 10_000);
 
-		await waitForSettle(renderer, opts.settleMs, opts.maxWaitMs);
+		const settle = await waitForSettle(renderer, opts.settleMs, opts.maxWaitMs);
+		dbg("settle", { ...settle });
+		if (opts.requireLayout && settle.observable && !settle.moved) throw new LayoutNotRunError();
 		let graph: RawGraph | null = null;
 		try {
 			graph = renderer ? extractGraph(renderer) : null;
@@ -104,11 +119,31 @@ async function waitFor<T>(fn: () => T | null | undefined, timeoutMs: number): Pr
 	return null;
 }
 
-/** Wait until nodes stop moving (force layout settled), within limits. */
-async function waitForSettle(renderer: GraphRendererInternal | null, minMs: number, maxMs: number): Promise<void> {
-	const start = Date.now();
-	await sleep(minMs);
+interface SettleResult {
+	/** Positions could be read at all. */
+	observable: boolean;
+	/** The layout was seen moving. A layout that never moves wasn't running. */
+	moved: boolean;
+	/** It came to rest (rather than hitting the time limit). */
+	settled: boolean;
+	ms: number;
+	/** Average movement per node in the last half second. */
+	lastMove: number;
+	/** The Obsidian window was hidden or unfocused. */
+	background: boolean;
+}
 
+const CALM = 0.3; // average movement per node per half second that counts as "at rest"
+const CALM_CHECKS = 3; // ...for this many checks in a row (1.5 s)
+
+/**
+ * Wait until the force layout has run and come to rest, within limits.
+ * Calm only counts after the layout has been seen moving: a layout that
+ * hasn't started yet (or isn't being animated) also looks perfectly still.
+ */
+async function waitForSettle(renderer: GraphRendererInternal | null, minMs: number, maxMs: number): Promise<SettleResult> {
+	const start = Date.now();
+	const background = activeDocument.hidden || !activeDocument.hasFocus();
 	const positions = (): number[] | null => {
 		const nodes = renderer?.nodes;
 		if (!Array.isArray(nodes) || nodes.length === 0) return null;
@@ -116,25 +151,46 @@ async function waitForSettle(renderer: GraphRendererInternal | null, minMs: numb
 		for (const n of nodes) out.push(num(n?.x), num(n?.y));
 		return out;
 	};
+	const avgMove = (a: number[] | null, b: number[] | null): number | null => {
+		if (!a || !b || a.length !== b.length) return null;
+		let moved = 0;
+		for (let i = 0; i < a.length; i++) moved += Math.abs(a[i] - b[i]);
+		return moved / (a.length / 2);
+	};
 
+	const initial = positions();
+	await sleep(minMs);
 	let last = positions();
-	if (!last) return; // can't observe the layout; the minimum wait will do
+	const result: SettleResult = { observable: !!last, moved: false, settled: false, ms: 0, lastMove: 0, background };
+	if (!last) {
+		result.ms = Date.now() - start;
+		return result; // can't observe the layout; the minimum wait will do
+	}
+	result.moved = (avgMove(initial, last) ?? 0) >= CALM;
+
 	let calm = 0;
 	while (Date.now() - start < maxMs) {
 		await sleep(500);
 		const now = positions();
-		if (!now || !last || now.length !== last.length) {
-			last = now;
+		const move = avgMove(last, now);
+		last = now;
+		if (move === null) {
 			calm = 0;
 			continue;
 		}
-		let moved = 0;
-		for (let i = 0; i < now.length; i++) moved += Math.abs(now[i] - last[i]);
-		const avg = moved / (now.length / 2);
-		calm = avg < 0.3 ? calm + 1 : 0;
-		if (calm >= 2) return;
-		last = now;
+		result.lastMove = Math.round(move * 100) / 100;
+		if (move >= CALM) {
+			result.moved = true;
+			calm = 0;
+		} else if (result.moved && ++calm >= CALM_CHECKS) {
+			result.settled = true;
+			break;
+		} else if (!result.moved && Date.now() - start >= minMs + 3000) {
+			break; // still after the minimum wait plus 3 s: it isn't going to start
+		}
 	}
+	result.ms = Date.now() - start;
+	return result;
 }
 
 /** Supersample: render the graph at this multiple of its final size, then scale down. */

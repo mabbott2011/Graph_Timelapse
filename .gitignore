@@ -5,3 +5,5 @@ data.json
 .DS_Store
 Thumbs.db
 test/.out/
+bench/out/
+bench/.out/

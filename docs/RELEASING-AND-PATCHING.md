@@ -27,16 +27,24 @@ Version numbers are `MAJOR.MINOR.PATCH`:
 ## Shipping a release (including a patch)
 
 ```sh
-# 1. Fix, then build and test locally
-npm run build
+# 1. Fix, then check everything passes
+npm test && npm run lint && npm run build
 
 # 2. Bump the version. This runs version-bump.mjs, which updates
 #    manifest.json and versions.json, commits, and creates the tag.
 npm version patch          # or: minor / major
 
-# 3. Push the commit and the tag
-git push && git push --tags
+# 3. Push the branch, then ONLY this release's tag
+git push origin main
+git push origin 0.2.2
+
+# 4. Check the tag points at the bumped commit
+git show 0.2.2:manifest.json      # should say "version": "0.2.2"
 ```
+
+Why one tag and not `git push --tags`: `--tags` sends every local tag GitHub doesn't have, including test or mistaken ones, and each tag on GitHub can start a release build. Keep `--tags` for deliberate clean-up after comparing `git tag -l` with `git ls-remote --tags origin`. Never move a tag once it's published; ship the next patch instead.
+
+**No Node installed?** Edit the version in `manifest.json` and `package.json`, add it to `versions.json`, then `git commit -am "0.2.2"` and `git tag -a 0.2.2 -m "Release 0.2.2"`, and continue from step 3. The release build runs on GitHub, so it doesn't need Node locally.
 
 Pushing the tag triggers `.github/workflows/release.yml`, which builds the plugin and creates a **draft** release with the three files attached. Open it on GitHub, write the notes (what changed, for whom), and click **Publish**.
 
@@ -78,8 +86,10 @@ Instead:
 - [ ] Reproduced the bug, ideally in a test vault
 - [ ] Fix plus manual test (`npm run build`, reload the plugin)
 - [ ] No new `console.log` noise
+- [ ] `npm test`, `npm run lint`, `npm run build` all pass
 - [ ] `npm version patch`
-- [ ] `git push && git push --tags`
+- [ ] `git push origin main`, then `git push origin <version>`
+- [ ] `git show <version>:manifest.json` shows the new version
 - [ ] Release notes written, draft published
 - [ ] Automated review passed (dashboard)
 - [ ] Updated your own vault's copy

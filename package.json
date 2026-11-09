@@ -8,7 +8,9 @@
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint src",
-		"test": "node test/run.mjs"
+		"test": "node test/run.mjs",
+		"bench:gen": "node bench/gen.mjs",
+		"bench:jitter": "node bench/run.mjs jitter"
 	},
 	"keywords": [
 		"obsidian",
@@ -29,5 +31,8 @@
 		"eslint-plugin-obsidianmd": "^0.5.1",
 		"globals": "^17.14.0",
 		"typescript-eslint": "^8.72.1"
+	},
+	"dependencies": {
+		"mediabunny": "1.62.1"
 	}
 }

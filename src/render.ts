@@ -39,6 +39,8 @@ export interface DrawOptions {
 	textColor: string;
 	font: string;
 	stamp: boolean;
+	/** Small credit drawn bottom-right (video exports always set it). */
+	credit?: string;
 }
 
 export function snapshotBounds(s: Snapshot): Bounds {
@@ -170,8 +172,32 @@ function rgba(hex: string, mult: number): string {
 	return `rgba(${r},${g},${b},${(a * mult).toFixed(3)})`;
 }
 
+export const CREDIT = "made with Graph Timelapse";
+
+interface Footer {
+	height: number;
+	size: number;
+	label: string;
+	credit: string;
+	/** Label and credit fit side by side on one line. */
+	oneLine: boolean;
+}
+
+/** Space reserved under the graph for the date/counts stamp and the credit. */
+function footer(ctx: CanvasRenderingContext2D, f: Frame, o: DrawOptions): Footer {
+	const size = Math.max(11, Math.round(o.height / 45));
+	const label = o.stamp ? f.label : "";
+	const credit = o.credit ?? "";
+	if (!label && !credit) return { height: 0, size, label, credit, oneLine: true };
+	ctx.font = `${size}px ${o.font}`;
+	const room = o.width - o.padding * 2;
+	const oneLine = !label || !credit || ctx.measureText(label).width + size * 1.5 + ctx.measureText(credit).width <= room;
+	const line = Math.round(o.height / 18);
+	return { height: oneLine ? line : line + Math.round(size * 1.4), size, label, credit, oneLine };
+}
+
 export function stampHeight(o: DrawOptions): number {
-	return o.stamp ? Math.round(o.height / 18) : 0;
+	return o.stamp || o.credit ? Math.round(o.height / 18) : 0;
 }
 
 /** Draw a frame centred and fitted into width × height (in canvas pixels). */
@@ -179,9 +205,10 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, o: DrawOption
 	ctx.save();
 	ctx.fillStyle = o.background;
 	ctx.fillRect(0, 0, o.width, o.height);
+	const foot = footer(ctx, f, o);
 
 	const boxW = Math.max(o.width - o.padding * 2, 10);
-	const boxH = Math.max(o.height - o.padding * 2 - stampHeight(o), 10);
+	const boxH = Math.max(o.height - o.padding * 2 - foot.height, 10);
 	const bw = Math.max(f.bounds.maxX - f.bounds.minX, 1);
 	const bh = Math.max(f.bounds.maxY - f.bounds.minY, 1);
 	const k = Math.min(boxW / bw, boxH / bh);
@@ -215,12 +242,21 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, o: DrawOption
 		ctx.fill();
 	}
 
-	if (o.stamp && f.label) {
-		const size = Math.max(11, Math.round(o.height / 45));
-		ctx.font = `${size}px ${o.font}`;
+	if (foot.label || foot.credit) {
+		const base = o.height - o.padding / 2;
+		ctx.font = `${foot.size}px ${o.font}`;
 		ctx.fillStyle = o.textColor;
 		ctx.textBaseline = "bottom";
-		ctx.fillText(f.label, o.padding, o.height - o.padding / 2);
+		if (foot.label) {
+			ctx.textAlign = "left";
+			ctx.fillText(foot.label, o.padding, base);
+		}
+		if (foot.credit) {
+			// Right-aligned; on narrow frames it sits on its own line above the stamp.
+			ctx.globalAlpha = 0.85;
+			ctx.textAlign = "right";
+			ctx.fillText(foot.credit, o.width - o.padding, foot.oneLine ? base : base - Math.round(foot.size * 1.4));
+		}
 	}
 	ctx.restore();
 }
